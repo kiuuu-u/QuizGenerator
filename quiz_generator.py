@@ -84,107 +84,78 @@ if uploaded_files and not st.session_state.questions:
 
     # Generate questions
     doc = nlp(all_text)
-    keywords = [token.text for token in doc if token.is_alpha and not token.is_stop]
+    sentences = [sent.text.strip() for sent in doc.sents if len(sent) > 5]  # Get meaningful sentences
+    # Automatically expand keyword_options
+    keyword_options = {}
+    for sent in doc.sents:
+        for ent in sent.ents:
+            if ent.label_ in ["PERSON", "ORG", "NORP", "GPE", "PRODUCT", "EVENT"] and ent.text.lower() not in keyword_options:
+                context = sent.text.lower()
+                if "regulate" in context or "regulation" in context:
+                    correct = f"It regulates biological processes"
+                elif "metabolism" in context or "metabolic" in context:
+                    correct = f"It converts nutrients into energy"
+                elif "synthesis" in context or "synthesize" in context:
+                    correct = f"It synthesizes proteins or molecules"
+                elif "catalyze" in context or "catalysis" in context:
+                    correct = f"It catalyzes chemical reactions"
+                else:
+                    correct = f"It plays a key role in cellular function"
+                distractors = [
+                    f"It stores genetic information",
+                    f"It transports oxygen",
+                    f"It produces ATP passively"
+                ]
+                keyword_options[ent.text.lower()] = {"correct": correct, "distractors": distractors}
 
-    # Define keyword-to-options mapping for LIFS 2210 topics
-    keyword_options = {
-        "enzyme": {
-            "correct": "lowers activation energy",
-            "distractors": ["stores genetic information", "transports oxygen", "synthesizes carbohydrates"]
-        },
-        "dna": {
-            "correct": "stores genetic information",
-            "distractors": ["catalyzes reactions", "produces ATP", "forms cell membrane"]
-        },
-        "metabolism": {
-            "correct": "converts nutrients into energy",
-            "distractors": ["transcribes RNA", "builds cell walls", "transports ions"]
-        },
-        "protein": {
-            "correct": "functions as an enzyme or structural component",
-            "distractors": ["stores energy as fat", "carries genetic code", "forms microtubules"]
-        },
-        "gene": {
-            "correct": "encodes a functional product like protein",
-            "distractors": ["produces energy", "forms cell membrane", "transports glucose"]
-        },
-        "glycolysis": {
-            "correct": "converts glucose into pyruvate",
-            "distractors": ["synthesizes DNA", "produces ribosomes", "transports lipids"]
-        },
-        "mitosis": {
-            "correct": "divides the nucleus to form two daughter cells",
-            "distractors": ["synthesizes proteins", "produces ATP", "transcribes RNA"]
-        }
-    }
-
-    # Generate MCQs with improved options
+    # Enhanced question generation
     for i in range(15):
-        if len(keywords) > 4:
-            keyword = random.choice(keywords).lower()
-            if keyword in keyword_options:
+        if len(sentences) > 0 and keyword_options:
+            keyword = random.choice(list(keyword_options.keys()))
+            sentence = random.choice(sentences)
+            entities = [ent.text for ent in nlp(sentence).ents]
+            if keyword in [e.lower() for e in entities]:
+                # Critical thinking questions
+                question_types = [
+                    f"Why might {keyword} be essential for the process described in '{sentence[:30]}...'?",
+                    f"How could {keyword} influence the outcome of '{sentence[:30]}...'?",
+                    f"What evidence from '{sentence[:30]}...' supports the role of {keyword}?",
+                    f"How would altering {keyword} affect the process in '{sentence[:30]}...'?"
+                ]
+                question = random.choice(question_types)
                 correct = keyword_options[keyword]["correct"]
                 distractors = keyword_options[keyword]["distractors"]
-                # Ensure distractors don't contain the correct answer
-                distractors = [d for d in distractors if d != correct][:3]  # Take up to 3 unique distractors
-                # Combine correct answer and distractors into a single list
-                all_options = [correct] + distractors
-                # Shuffle the options
-                random.shuffle(all_options)
-                # Assign labels A, B, C, D after shuffling
-                labeled_options = [f"{chr(65+j)}. {opt}" for j, opt in enumerate(all_options)]
-                # Find the new position of the correct answer
-                correct_idx = all_options.index(correct)
-                correct_answer = chr(65 + correct_idx)  # e.g., 'A', 'B', 'C', or 'D'
-                st.session_state.decks[st.session_state.current_deck].append({
-                    "question": f"What is the primary function of {keyword}?",
-                    "options": labeled_options,
-                    "answer": correct_answer,
-                    "explanation": f"{keyword} {correct} in cellular processes."
-                })
-            else:
-                # Fallback for keywords not in keyword_options
-                correct = f"{keyword} catalyzes reactions"
-                distractors = []
-                while len(distractors) < 3:
-                    opt = random.choice(["stores energy", "transports oxygen", "synthesizes proteins", "regulates genes"])
-                    if opt != correct and opt not in distractors:
-                        distractors.append(f"{keyword} {opt}")
-                all_options = [correct] + distractors
+                all_options = [correct] + [d for d in distractors if d != correct][:2]
+                while len(all_options) < 4:
+                    fallback = random.choice(["It synthesizes proteins", "It regulates genes", "It catalyzes reactions"])
+                    if fallback not in all_options:
+                        all_options.append(fallback)
                 random.shuffle(all_options)
                 labeled_options = [f"{chr(65+j)}. {opt}" for j, opt in enumerate(all_options)]
                 correct_idx = all_options.index(correct)
                 correct_answer = chr(65 + correct_idx)
                 st.session_state.decks[st.session_state.current_deck].append({
-                    "question": f"What is the role of {keyword}?",
+                    "question": question,
                     "options": labeled_options,
                     "answer": correct_answer,
-                    "explanation": f"{keyword} is a key component."
+                    "explanation": f"Based on the context, {keyword} {correct.split('It ')[1].lower()} in the described process."
                 })
 
-    # Generate T/F questions with better relevance
+    # Generate T/F questions
     for i in range(5):
-        if keywords:
-            keyword = random.choice(keywords).lower()
-            if keyword in keyword_options:
-                correct_function = keyword_options[keyword]["correct"]
-                statement = f"{keyword} {correct_function}."
-                answer = "A"
-                st.session_state.decks[st.session_state.current_deck].append({
-                    "question": statement,
-                    "options": ["A. True", "B. False"],
-                    "answer": answer,
-                    "explanation": f"This statement is true based on the role of {keyword}."
-                })
-            else:
-                statement = f"{keyword} is in the nucleus."
-                answer = "A" if keyword == "dna" else "B"
-                st.session_state.decks[st.session_state.current_deck].append({
-                    "question": statement,
-                    "options": ["A. True", "B. False"],
-                    "answer": answer,
-                    "explanation": f"{keyword} is in the {'nucleus' if keyword == 'dna' else 'cytoplasm'}."
-                })
+        if len(sentences) > 0 and keyword_options:
+            keyword = random.choice(list(keyword_options.keys()))
+            sentence = random.choice(sentences)
+            key_entity = random.choice([ent.text for ent in nlp(sentence).ents]) if [ent.text for ent in nlp(sentence).ents] else "process"
+            statement = f"{keyword} is central to the {random.choice(['metabolic', 'genetic', 'cellular'])} process in '{sentence[:30]}...'."
+            answer = "A" if keyword in sentence.lower() else "B"
+            st.session_state.decks[st.session_state.current_deck].append({
+                "question": statement,
+                "options": ["A. True", "B. False"],
+                "answer": answer,
+                "explanation": f"This is {'' if answer == 'A' else 'not '}true based on the sentence context."
+            })
+
     save_decks()
     st.session_state.questions = st.session_state.decks[st.session_state.current_deck]
 
@@ -200,7 +171,7 @@ if st.session_state.questions and st.session_state.mode == "Answer Mode":
 
     user_answer = st.radio("Your Answer:", [opt.split(". ")[1] for opt in current_q['options']], key=f"answer_{st.session_state.question_index}")
     if st.button("Submit"):
-        correct_answer = current_q['answer']  # Now just "A", "B", etc.
+        correct_answer = current_q['answer']
         if user_answer == current_q['options'][ord(correct_answer) - 65].split(". ")[1]:
             st.success("Correct!")
             st.session_state.score += 1
