@@ -37,13 +37,16 @@ def save_decks():
     with open("decks.json", "w") as f:
         json.dump(st.session_state.decks, f)
 
-# Download SpaCy model if not present
-if not spacy.util.is_package("en_core_web_sm"):
-    os.system("python3 -m spacy download en_core_web_sm")
-nlp = spacy.load("en_core_web_sm")
+# Load SpaCy model from local directory
+model_path = os.path.join(os.path.dirname(__file__), "en_core_web_sm")
+if os.path.exists(model_path):
+    nlp = spacy.load(model_path)
+else:
+    st.error("SpaCy model 'en_core_web_sm' not found. Please ensure it is included in the project directory.")
+    st.stop()
 
 # Upload multiple PDFs
-uploaded_files = st.file_uploader("Upload LIFS 2210 Lecture PDFs", type="pdf", accept_multiple_files=True)
+uploaded_files = st.file_uploader("Upload your PDFs", type="pdf", accept_multiple_files=True)
 if uploaded_files and not st.session_state.questions:
     load_decks()
     all_text = ""
