@@ -95,22 +95,39 @@ if uploaded_files and not st.session_state.questions:
         for ent in sent.ents:
             if ent.label_ in ["PERSON", "ORG", "NORP", "GPE", "PRODUCT", "EVENT"] and ent.text.lower() not in keyword_options:
                 context = sent.text.lower()
-                if "regulate" in context or "regulation" in context:
-                    correct = f"It regulates biological processes"
+                doc_sent = nlp(sent.text)
+                # Look for verbs or actions related to the entity
+                related_action = None
+                for token in doc_sent:
+                    if token.head.text.lower() == ent.text.lower() and token.dep_ in ["nsubj", "dobj"]:
+                        related_action = token.head.lemma_
+                        break
+                if related_action:
+                    correct = f"Plays a role in {related_action}"
+                elif "regulate" in context or "regulation" in context:
+                    correct = f"Regulates biological processes"
+                    related_action = "regulation"
                 elif "metabolism" in context or "metabolic" in context:
-                    correct = f"It converts nutrients into energy"
+                    correct = f"Converts nutrients into energy"
+                    related_action = "metabolism"
                 elif "synthesis" in context or "synthesize" in context:
-                    correct = f"It synthesizes proteins or molecules"
+                    correct = f"Synthesizes proteins or molecules"
+                    related_action = "synthesis"
                 elif "catalyze" in context or "catalysis" in context:
-                    correct = f"It catalyzes chemical reactions"
+                    correct = f"Catalyzes chemical reactions"
+                    related_action = "catalysis"
                 else:
-                    correct = f"It plays a key role in cellular function"
+                    correct = f"Plays a key role in cellular function"
+                    related_action = "cellular function"
                 distractors = [
-                    f"It stores genetic information",
-                    f"It transports oxygen",
-                    f"It produces ATP passively"
+                    "Stores genetic information",
+                    "Transports oxygen",
+                    "Produces ATP passively",
+                    "Forms the cell membrane"
                 ]
-                keyword_options[ent.text.lower()] = {"correct": correct, "distractors": distractors}
+                # Ensure distractors are unique and don't overlap with correct answer
+                unique_distractors = [d for d in distractors if d.lower() != correct.lower()]
+                keyword_options[ent.text.lower()] = {"correct": correct, "distractors": unique_distractors, "action": related_action}
 
     # Enhanced question generation
     for i in range(15):
@@ -129,13 +146,20 @@ if uploaded_files and not st.session_state.questions:
                 question = random.choice(question_types)
                 correct = keyword_options[keyword]["correct"]
                 distractors = keyword_options[keyword]["distractors"]
+                related_action = keyword_options[keyword]["action"]
                 # Ensure exactly 4 unique options
                 all_options = [correct]
-                for d in distractors:
-                    if d != correct and d not in all_options:
+                unique_distractors = list(set(distractors))  # Remove duplicates from distractors
+                for d in unique_distractors:
+                    if d != correct and d not in all_options and len(all_options) < 4:
                         all_options.append(d)
                 while len(all_options) < 4:
-                    fallback = random.choice(["It synthesizes proteins", "It regulates genes", "It catalyzes reactions"])
+                    fallback = random.choice([
+                        "Synthesizes proteins",
+                        "Regulates genes",
+                        "Catalyzes reactions",
+                        "Transports materials"
+                    ])
                     if fallback not in all_options:
                         all_options.append(fallback)
                 all_options = all_options[:4]  # Ensure exactly 4 options
@@ -143,11 +167,20 @@ if uploaded_files and not st.session_state.questions:
                 labeled_options = [f"{chr(65+j)}. {opt}" for j, opt in enumerate(all_options)]
                 correct_idx = all_options.index(correct)
                 correct_answer = chr(65 + correct_idx)
+                # Intelligent explanation based on question type
+                if "Why might" in question:
+                    explanation = f"{keyword} is essential because it {correct.lower()} in the process, as inferred from '{sentence[:30]}...'"
+                elif "How could" in question:
+                    explanation = f"{keyword} could influence the outcome by {correct.lower()}, impacting {related_action} in '{sentence[:30]}...'"
+                elif "What evidence" in question:
+                    explanation = f"The sentence '{sentence[:30]}...' suggests {keyword} {correct.lower()}, supporting its role in {related_action}."
+                else:  # "How would altering"
+                    explanation = f"Altering {keyword} would disrupt {related_action}, as it {correct.lower()} in '{sentence[:30]}...'"
                 st.session_state.decks[st.session_state.current_deck].append({
                     "question": question,
                     "options": labeled_options,
                     "answer": correct_answer,
-                    "explanation": f"Based on the context, {keyword} {correct.split('It ')[1].lower()} in the described process."
+                    "explanation": explanation
                 })
 
     # Generate T/F questions
@@ -158,11 +191,12 @@ if uploaded_files and not st.session_state.questions:
             key_entity = random.choice([ent.text for ent in nlp(sentence).ents]) if [ent.text for ent in nlp(sentence).ents] else "process"
             statement = f"{keyword} is central to the {random.choice(['metabolic', 'genetic', 'cellular'])} process in '{sentence[:30]}...'."
             answer = "A" if keyword in sentence.lower() else "B"
+            explanation = f"This statement is {'' if answer == 'A' else 'not '}true because {keyword} {'' if answer == 'A' else 'does not '}appear to play a central role in the {random.choice(['metabolic', 'genetic', 'cellular'])} process described in '{sentence[:30]}...'."
             st.session_state.decks[st.session_state.current_deck].append({
                 "question": statement,
                 "options": ["A. True", "B. False"],
                 "answer": answer,
-                "explanation": f"This is {'' if answer == 'A' else 'not '}true based on the sentence context."
+                "explanation": explanation
             })
 
     save_decks()
