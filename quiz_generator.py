@@ -8,7 +8,7 @@ import random
 import json
 import os
 
-st.title("LIFS 2210 Quiz Generator")
+st.title("Free Quiz Generator")
 
 # Initialize session state
 if 'question_index' not in st.session_state:
@@ -38,7 +38,7 @@ def save_decks():
         json.dump(st.session_state.decks, f)
 
 # Upload multiple PDFs
-uploaded_files = st.file_uploader("Upload LIFS 2210 Lecture PDFs", type="pdf", accept_multiple_files=True)
+uploaded_files = st.file_uploader("Upload your PDFs", type="pdf", accept_multiple_files=True)
 if uploaded_files and not st.session_state.questions:
     load_decks()
     all_text = ""
@@ -46,17 +46,22 @@ if uploaded_files and not st.session_state.questions:
         with open("temp.pdf", "wb") as f:
             f.write(uploaded_file.read())
         
-        # Extract text
+        # Extract text using PyPDF2
         with open("temp.pdf", "rb") as f:
             pdf = PyPDF2.PdfReader(f)
             for page in pdf.pages:
                 text = page.extract_text()
-                all_text += text
-                if "diagram" in text.lower() or "pathway" in text.lower():
-                    images = convert_from_path("temp.pdf", poppler_path="/opt/homebrew/bin", first_page=1, last_page=1)
-                    for i, image in enumerate(images):
-                        img_text = pytesseract.image_to_string(Image.open(f"page_{i}.png"))
-                        all_text += img_text
+                all_text += text if text else ""
+
+        # Attempt image processing only if needed (optional and skippable)
+        if "diagram" in all_text.lower() or "pathway" in all_text.lower():
+            try:
+                images = convert_from_path("temp.pdf", poppler_path="/opt/homebrew/bin", first_page=1, last_page=1)
+                for i, image in enumerate(images):
+                    img_text = pytesseract.image_to_string(Image.open(f"page_{i}.png"))
+                    all_text += img_text if img_text else ""
+            except Exception as e:
+                st.warning("Image processing skipped due to missing Poppler/Tesseract. Proceeding with text-based questions only.")
 
     # Create or select custom deck
     new_deck_name = st.text_input("Create a new deck name (or press Enter to use existing):")
@@ -75,35 +80,93 @@ if uploaded_files and not st.session_state.questions:
     doc = nlp(all_text)
     keywords = [token.text for token in doc if token.is_alpha and not token.is_stop]
 
-    # Generate MCQs
+    # Define keyword-to-options mapping for LIFS 2210 topics
+    keyword_options = {
+        "enzyme": {
+            "correct": "lowers activation energy",
+            "distractors": ["stores genetic information", "transports oxygen", "synthesizes carbohydrates"]
+        },
+        "dna": {
+            "correct": "stores genetic information",
+            "distractors": ["catalyzes reactions", "produces ATP", "forms cell membrane"]
+        },
+        "metabolism": {
+            "correct": "converts nutrients into energy",
+            "distractors": ["transcribes RNA", "builds cell walls", "transports ions"]
+        },
+        "protein": {
+            "correct": "functions as an enzyme or structural component",
+            "distractors": ["stores energy as fat", "carries genetic code", "forms microtubules"]
+        },
+        "gene": {
+            "correct": "encodes a functional product like protein",
+            "distractors": ["produces energy", "forms cell membrane", "transports glucose"]
+        },
+        "glycolysis": {
+            "correct": "converts glucose into pyruvate",
+            "distractors": ["synthesizes DNA", "produces ribosomes", "transports lipids"]
+        },
+        "mitosis": {
+            "correct": "divides the nucleus to form two daughter cells",
+            "distractors": ["synthesizes proteins", "produces ATP", "transcribes RNA"]
+        }
+    }
+
+    # Generate MCQs with improved options
     for i in range(15):
         if len(keywords) > 4:
-            keyword = random.choice(keywords)
-            options = [f"A. {keyword} catalyzes reactions"]
-            while len(options) < 4:
-                opt = random.choice(["stores energy", "transports oxygen", "synthesizes proteins", "regulates genes"])
-                if opt not in options:
-                    options.append(f"D. {keyword} {opt}")
-            random.shuffle(options)
-            st.session_state.decks[st.session_state.current_deck].append({
-                "question": f"What is the role of {keyword}?",
-                "options": options,
-                "answer": "A",
-                "explanation": f"{keyword} is a key component."
-            })
+            keyword = random.choice(keywords).lower()
+            if keyword in keyword_options:
+                correct = keyword_options[keyword]["correct"]
+                distractors = keyword_options[keyword]["distractors"]
+                options = [f"A. {correct}"]
+                random.shuffle(distractors)
+                options.extend([f"{chr(66+j)}. {distractors[j]}" for j in range(3)])
+                random.shuffle(options)
+                correct_answer = "A"
+                st.session_state.decks[st.session_state.current_deck].append({
+                    "question": f"What is the primary function of {keyword}?",
+                    "options": options,
+                    "answer": "A",
+                    "explanation": f"{keyword} {correct} in cellular processes."
+                })
+            else:
+                options = [f"A. {keyword} catalyzes reactions"]
+                while len(options) < 4:
+                    opt = random.choice(["stores energy", "transports oxygen", "synthesizes proteins", "regulates genes"])
+                    if opt not in options:
+                        options.append(f"D. {keyword} {opt}")
+                random.shuffle(options)
+                st.session_state.decks[st.session_state.current_deck].append({
+                    "question": f"What is the role of {keyword}?",
+                    "options": options,
+                    "answer": "A",
+                    "explanation": f"{keyword} is a key component."
+                })
 
-    # Generate T/F questions
+    # Generate T/F questions with better relevance
     for i in range(5):
         if keywords:
-            keyword = random.choice(keywords)
-            statement = f"{keyword} is in the nucleus."
-            answer = "A" if keyword.lower() == "dna" else "B"
-            st.session_state.decks[st.session_state.current_deck].append({
-                "question": statement,
-                "options": ["A. True", "B. False"],
-                "answer": answer,
-                "explanation": f"{keyword} is in the {'nucleus' if keyword.lower() == 'dna' else 'cytoplasm'}."
-            })
+            keyword = random.choice(keywords).lower()
+            if keyword in keyword_options:
+                correct_function = keyword_options[keyword]["correct"]
+                statement = f"{keyword} {correct_function}."
+                answer = "A"
+                st.session_state.decks[st.session_state.current_deck].append({
+                    "question": statement,
+                    "options": ["A. True", "B. False"],
+                    "answer": answer,
+                    "explanation": f"This statement is true based on the role of {keyword}."
+                })
+            else:
+                statement = f"{keyword} is in the nucleus."
+                answer = "A" if keyword == "dna" else "B"
+                st.session_state.decks[st.session_state.current_deck].append({
+                    "question": statement,
+                    "options": ["A. True", "B. False"],
+                    "answer": answer,
+                    "explanation": f"{keyword} is in the {'nucleus' if keyword == 'dna' else 'cytoplasm'}."
+                })
     save_decks()
     st.session_state.questions = st.session_state.decks[st.session_state.current_deck]
 
