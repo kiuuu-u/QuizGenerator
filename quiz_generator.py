@@ -29,6 +29,8 @@ if 'submitted' not in st.session_state:
     st.session_state.submitted = False
 if 'user_answer' not in st.session_state:
     st.session_state.user_answer = None
+if 'last_uploaded_files' not in st.session_state:
+    st.session_state.last_uploaded_files = None
 
 # Load existing decks
 def load_decks():
@@ -50,7 +52,24 @@ except Exception as e:
 
 # Upload multiple PDFs
 uploaded_files = st.file_uploader("Upload your PDFs", type="pdf", accept_multiple_files=True)
-if uploaded_files and not st.session_state.questions:
+
+# Check if the uploaded files have changed
+files_changed = False
+if uploaded_files:
+    current_file_names = sorted([f.name for f in uploaded_files])
+    if st.session_state.last_uploaded_files != current_file_names:
+        files_changed = True
+        st.session_state.last_uploaded_files = current_file_names
+        # Reset relevant session state to ensure new questions are generated
+        st.session_state.questions = []
+        if st.session_state.current_deck in st.session_state.decks:
+            st.session_state.decks[st.session_state.current_deck] = []
+        st.session_state.question_index = 0
+        st.session_state.score = 0
+        st.session_state.submitted = False
+        st.session_state.user_answer = None
+
+if uploaded_files and (files_changed or not st.session_state.questions):
     load_decks()
     all_text = ""
     for uploaded_file in uploaded_files:
@@ -91,6 +110,7 @@ if uploaded_files and not st.session_state.questions:
     sentences = [sent.text.strip() for sent in doc.sents if len(sent) > 5]  # Get meaningful sentences
     # Automatically expand keyword_options
     keyword_options = {}
+    used_sentences = set()  # Track used sentences to ensure diversity
     for sent in doc.sents:
         for ent in sent.ents:
             if ent.label_ in ["PERSON", "ORG", "NORP", "GPE", "PRODUCT", "EVENT"] and ent.text.lower() not in keyword_options:
@@ -133,9 +153,14 @@ if uploaded_files and not st.session_state.questions:
     for i in range(15):
         if len(sentences) > 0 and keyword_options:
             keyword = random.choice(list(keyword_options.keys()))
-            sentence = random.choice(sentences)
-            entities = [ent.text for ent in nlp(sentence).ents]
-            if keyword in [e.lower() for e in entities]:
+            # Select a sentence that contains the keyword
+            relevant_sentences = [s for s in sentences if keyword in s.lower() and s not in used_sentences]
+            if not relevant_sentences:  # Fallback if no relevant sentence is found
+                relevant_sentences = [s for s in sentences if s not in used_sentences]
+            if relevant_sentences:
+                sentence = random.choice(relevant_sentences)
+                used_sentences.add(sentence)
+                entities = [ent.text for ent in nlp(sentence).ents]
                 # Critical thinking questions
                 question_types = [
                     f"Why might {keyword} be essential for the process described in '{sentence[:30]}...'?",
@@ -187,17 +212,22 @@ if uploaded_files and not st.session_state.questions:
     for i in range(5):
         if len(sentences) > 0 and keyword_options:
             keyword = random.choice(list(keyword_options.keys()))
-            sentence = random.choice(sentences)
-            key_entity = random.choice([ent.text for ent in nlp(sentence).ents]) if [ent.text for ent in nlp(sentence).ents] else "process"
-            statement = f"{keyword} is central to the {random.choice(['metabolic', 'genetic', 'cellular'])} process in '{sentence[:30]}...'."
-            answer = "A" if keyword in sentence.lower() else "B"
-            explanation = f"This statement is {'' if answer == 'A' else 'not '}true because {keyword} {'' if answer == 'A' else 'does not '}appear to play a central role in the {random.choice(['metabolic', 'genetic', 'cellular'])} process described in '{sentence[:30]}...'."
-            st.session_state.decks[st.session_state.current_deck].append({
-                "question": statement,
-                "options": ["A. True", "B. False"],
-                "answer": answer,
-                "explanation": explanation
-            })
+            relevant_sentences = [s for s in sentences if keyword in s.lower() and s not in used_sentences]
+            if not relevant_sentences:
+                relevant_sentences = [s for s in sentences if s not in used_sentences]
+            if relevant_sentences:
+                sentence = random.choice(relevant_sentences)
+                used_sentences.add(sentence)
+                process_type = random.choice(['metabolic', 'genetic', 'cellular'])
+                statement = f"{keyword} is central to the {process_type} process in '{sentence[:30]}...'."
+                answer = "A" if keyword in sentence.lower() else "B"
+                explanation = f"This statement is {'' if answer == 'A' else 'not '}true because {keyword} {'' if answer == 'A' else 'does not '}appear to play a central role in the {process_type} process described in '{sentence[:30]}...'."
+                st.session_state.decks[st.session_state.current_deck].append({
+                    "question": statement,
+                    "options": ["A. True", "B. False"],
+                    "answer": answer,
+                    "explanation": explanation
+                })
 
     save_decks()
     st.session_state.questions = st.session_state.decks[st.session_state.current_deck]
