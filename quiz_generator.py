@@ -7,6 +7,7 @@ import spacy
 import os
 import random
 import json
+import hashlib
 
 st.title("Free Quiz Generator")
 
@@ -29,8 +30,8 @@ if 'submitted' not in st.session_state:
     st.session_state.submitted = False
 if 'user_answer' not in st.session_state:
     st.session_state.user_answer = None
-if 'last_uploaded_files' not in st.session_state:
-    st.session_state.last_uploaded_files = None
+if 'last_upload_hash' not in st.session_state:
+    st.session_state.last_upload_hash = None
 
 # Load existing decks
 def load_decks():
@@ -50,24 +51,35 @@ except Exception as e:
     st.error(f"Failed to load SpaCy model 'en_core_web_sm'. Error: {str(e)}")
     st.stop()
 
+# Compute a hash of the uploaded files to detect changes
+def compute_upload_hash(uploaded_files):
+    if not uploaded_files:
+        return None
+    file_hashes = []
+    for file in sorted(uploaded_files, key=lambda x: x.name):
+        file.seek(0)
+        file_hash = hashlib.md5(file.read()).hexdigest()
+        file.seek(0)  # Reset file pointer
+        file_hashes.append(file_hash)
+    return hashlib.md5("".join(file_hashes).encode()).hexdigest()
+
 # Upload multiple PDFs
 uploaded_files = st.file_uploader("Upload your PDFs", type="pdf", accept_multiple_files=True)
 
 # Check if the uploaded files have changed
 files_changed = False
-if uploaded_files:
-    current_file_names = sorted([f.name for f in uploaded_files])
-    if st.session_state.last_uploaded_files != current_file_names:
-        files_changed = True
-        st.session_state.last_uploaded_files = current_file_names
-        # Reset relevant session state to ensure new questions are generated
-        st.session_state.questions = []
-        if st.session_state.current_deck in st.session_state.decks:
-            st.session_state.decks[st.session_state.current_deck] = []
-        st.session_state.question_index = 0
-        st.session_state.score = 0
-        st.session_state.submitted = False
-        st.session_state.user_answer = None
+current_upload_hash = compute_upload_hash(uploaded_files)
+if uploaded_files and current_upload_hash != st.session_state.last_upload_hash:
+    files_changed = True
+    st.session_state.last_upload_hash = current_upload_hash
+    # Reset relevant session state to ensure new questions are generated
+    st.session_state.questions = []
+    if st.session_state.current_deck in st.session_state.decks:
+        st.session_state.decks[st.session_state.current_deck] = []
+    st.session_state.question_index = 0
+    st.session_state.score = 0
+    st.session_state.submitted = False
+    st.session_state.user_answer = None
 
 if uploaded_files and (files_changed or not st.session_state.questions):
     load_decks()
@@ -118,36 +130,56 @@ if uploaded_files and (files_changed or not st.session_state.questions):
                 doc_sent = nlp(sent.text)
                 # Look for verbs or actions related to the entity
                 related_action = None
+                related_object = None
                 for token in doc_sent:
                     if token.head.text.lower() == ent.text.lower() and token.dep_ in ["nsubj", "dobj"]:
                         related_action = token.head.lemma_
+                        # Look for an object related to the action
+                        for child in token.head.children:
+                            if child.dep_ in ["dobj", "attr"]:
+                                related_object = child.text
+                                break
                         break
                 if related_action:
-                    correct = f"Plays a role in {related_action}"
+                    correct = f"{related_action.capitalize()}s {related_object or 'cellular processes'}"
                 elif "regulate" in context or "regulation" in context:
                     correct = f"Regulates biological processes"
-                    related_action = "regulation"
+                    related_action = "regulates"
+                    related_object = "biological processes"
                 elif "metabolism" in context or "metabolic" in context:
                     correct = f"Converts nutrients into energy"
-                    related_action = "metabolism"
+                    related_action = "converts"
+                    related_object = "nutrients into energy"
                 elif "synthesis" in context or "synthesize" in context:
                     correct = f"Synthesizes proteins or molecules"
-                    related_action = "synthesis"
+                    related_action = "synthesizes"
+                    related_object = "proteins or molecules"
                 elif "catalyze" in context or "catalysis" in context:
                     correct = f"Catalyzes chemical reactions"
-                    related_action = "catalysis"
+                    related_action = "catalyzes"
+                    related_object = "chemical reactions"
                 else:
                     correct = f"Plays a key role in cellular function"
-                    related_action = "cellular function"
+                    related_action = "plays a key role"
+                    related_object = "cellular function"
                 distractors = [
                     "Stores genetic information",
                     "Transports oxygen",
                     "Produces ATP passively",
-                    "Forms the cell membrane"
+                    "Forms the cell membrane",
+                    "Synthesizes proteins",
+                    "Regulates genes",
+                    "Catalyzes reactions",
+                    "Transports materials"
                 ]
                 # Ensure distractors are unique and don't overlap with correct answer
                 unique_distractors = [d for d in distractors if d.lower() != correct.lower()]
-                keyword_options[ent.text.lower()] = {"correct": correct, "distractors": unique_distractors, "action": related_action}
+                keyword_options[ent.text.lower()] = {
+                    "correct": correct,
+                    "distractors": unique_distractors,
+                    "action": related_action,
+                    "object": related_object
+                }
 
     # Enhanced question generation
     for i in range(15):
@@ -160,7 +192,6 @@ if uploaded_files and (files_changed or not st.session_state.questions):
             if relevant_sentences:
                 sentence = random.choice(relevant_sentences)
                 used_sentences.add(sentence)
-                entities = [ent.text for ent in nlp(sentence).ents]
                 # Critical thinking questions
                 question_types = [
                     f"Why might {keyword} be essential for the process described in '{sentence[:30]}...'?",
@@ -172,9 +203,11 @@ if uploaded_files and (files_changed or not st.session_state.questions):
                 correct = keyword_options[keyword]["correct"]
                 distractors = keyword_options[keyword]["distractors"]
                 related_action = keyword_options[keyword]["action"]
+                related_object = keyword_options[keyword]["object"]
                 # Ensure exactly 4 unique options
                 all_options = [correct]
                 unique_distractors = list(set(distractors))  # Remove duplicates from distractors
+                random.shuffle(unique_distractors)
                 for d in unique_distractors:
                     if d != correct and d not in all_options and len(all_options) < 4:
                         all_options.append(d)
@@ -187,20 +220,29 @@ if uploaded_files and (files_changed or not st.session_state.questions):
                     ])
                     if fallback not in all_options:
                         all_options.append(fallback)
-                all_options = all_options[:4]  # Ensure exactly 4 options
+                all_options = list(set(all_options))[:4]  # Ensure exactly 4 unique options
+                while len(all_options) < 4:  # In case set reduces the size due to duplicates
+                    fallback = random.choice([
+                        "Synthesizes proteins",
+                        "Regulates genes",
+                        "Catalyzes reactions",
+                        "Transports materials"
+                    ])
+                    if fallback not in all_options:
+                        all_options.append(fallback)
                 random.shuffle(all_options)
                 labeled_options = [f"{chr(65+j)}. {opt}" for j, opt in enumerate(all_options)]
                 correct_idx = all_options.index(correct)
                 correct_answer = chr(65 + correct_idx)
                 # Intelligent explanation based on question type
                 if "Why might" in question:
-                    explanation = f"{keyword} is essential because it {correct.lower()} in the process, as inferred from '{sentence[:30]}...'"
+                    explanation = f"{keyword} is essential because it {related_action} {related_object}, as inferred from '{sentence[:30]}...'"
                 elif "How could" in question:
-                    explanation = f"{keyword} could influence the outcome by {correct.lower()}, impacting {related_action} in '{sentence[:30]}...'"
+                    explanation = f"{keyword} could influence the outcome by {related_action} {related_object}, impacting the process in '{sentence[:30]}...'"
                 elif "What evidence" in question:
-                    explanation = f"The sentence '{sentence[:30]}...' suggests {keyword} {correct.lower()}, supporting its role in {related_action}."
+                    explanation = f"The sentence '{sentence[:30]}...' suggests {keyword} {related_action} {related_object}, supporting its role in the process."
                 else:  # "How would altering"
-                    explanation = f"Altering {keyword} would disrupt {related_action}, as it {correct.lower()} in '{sentence[:30]}...'"
+                    explanation = f"Altering {keyword} would disrupt its ability to {related_action} {related_object}, affecting the process in '{sentence[:30]}...'"
                 st.session_state.decks[st.session_state.current_deck].append({
                     "question": question,
                     "options": labeled_options,
@@ -221,7 +263,9 @@ if uploaded_files and (files_changed or not st.session_state.questions):
                 process_type = random.choice(['metabolic', 'genetic', 'cellular'])
                 statement = f"{keyword} is central to the {process_type} process in '{sentence[:30]}...'."
                 answer = "A" if keyword in sentence.lower() else "B"
-                explanation = f"This statement is {'' if answer == 'A' else 'not '}true because {keyword} {'' if answer == 'A' else 'does not '}appear to play a central role in the {process_type} process described in '{sentence[:30]}...'."
+                related_action = keyword_options[keyword]["action"]
+                related_object = keyword_options[keyword]["object"]
+                explanation = f"This statement is {'' if answer == 'A' else 'not '}true because {keyword} {'' if answer == 'A' else 'does not '}appear to {related_action} {related_object} in the {process_type} process described in '{sentence[:30]}...'."
                 st.session_state.decks[st.session_state.current_deck].append({
                     "question": statement,
                     "options": ["A. True", "B. False"],
