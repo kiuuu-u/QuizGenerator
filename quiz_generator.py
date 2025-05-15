@@ -25,6 +25,10 @@ if 'mode' not in st.session_state:
     st.session_state.mode = "Answer Mode"
 if 'show_answer' not in st.session_state:
     st.session_state.show_answer = False
+if 'submitted' not in st.session_state:
+    st.session_state.submitted = False
+if 'user_answer' not in st.session_state:
+    st.session_state.user_answer = None
 
 # Load existing decks
 def load_decks():
@@ -125,11 +129,16 @@ if uploaded_files and not st.session_state.questions:
                 question = random.choice(question_types)
                 correct = keyword_options[keyword]["correct"]
                 distractors = keyword_options[keyword]["distractors"]
-                all_options = [correct] + [d for d in distractors if d != correct][:2]
+                # Ensure exactly 4 unique options
+                all_options = [correct]
+                for d in distractors:
+                    if d != correct and d not in all_options:
+                        all_options.append(d)
                 while len(all_options) < 4:
                     fallback = random.choice(["It synthesizes proteins", "It regulates genes", "It catalyzes reactions"])
                     if fallback not in all_options:
                         all_options.append(fallback)
+                all_options = all_options[:4]  # Ensure exactly 4 options
                 random.shuffle(all_options)
                 labeled_options = [f"{chr(65+j)}. {opt}" for j, opt in enumerate(all_options)]
                 correct_idx = all_options.index(correct)
@@ -170,23 +179,34 @@ if st.session_state.questions and st.session_state.mode == "Answer Mode":
         st.write(opt)
 
     user_answer = st.radio("Your Answer:", [opt.split(". ")[1] for opt in current_q['options']], key=f"answer_{st.session_state.question_index}")
-    if st.button("Submit"):
+    
+    if st.button("Submit") and not st.session_state.submitted:
+        st.session_state.submitted = True
+        st.session_state.user_answer = user_answer
+
+    if st.session_state.submitted:
         correct_answer = current_q['answer']
-        if user_answer == current_q['options'][ord(correct_answer) - 65].split(". ")[1]:
+        if st.session_state.user_answer == current_q['options'][ord(correct_answer) - 65].split(". ")[1]:
             st.success("Correct!")
             st.session_state.score += 1
         else:
             st.error(f"Wrong! Correct answer is {current_q['options'][ord(correct_answer) - 65].split('. ')[1]}")
         st.write(f"**Explanation:** {current_q['explanation']}")
-        if st.session_state.question_index < len(st.session_state.questions) - 1:
-            st.session_state.question_index += 1
-            st.experimental_rerun()
-        else:
-            st.write(f"All questions completed! Your score: {st.session_state.score}/{len(st.session_state.questions)}")
-            if st.button("Restart"):
-                st.session_state.question_index = 0
-                st.session_state.score = 0
+        
+        if st.button("Next"):
+            if st.session_state.question_index < len(st.session_state.questions) - 1:
+                st.session_state.question_index += 1
+                st.session_state.submitted = False
+                st.session_state.user_answer = None
                 st.experimental_rerun()
+            else:
+                st.write(f"All questions completed! Your score: {st.session_state.score}/{len(st.session_state.questions)}")
+                if st.button("Restart"):
+                    st.session_state.question_index = 0
+                    st.session_state.score = 0
+                    st.session_state.submitted = False
+                    st.session_state.user_answer = None
+                    st.experimental_rerun()
 
 # Flashcard Mode
 if st.session_state.questions and st.session_state.mode == "Flashcard Mode":
