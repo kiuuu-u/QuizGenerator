@@ -4,9 +4,9 @@ from pdf2image import convert_from_path
 import pytesseract
 from PIL import Image
 import spacy
+import os
 import random
 import json
-import os
 
 st.title("Free Quiz Generator")
 
@@ -37,8 +37,13 @@ def save_decks():
     with open("decks.json", "w") as f:
         json.dump(st.session_state.decks, f)
 
+# Download SpaCy model if not present
+if not spacy.util.is_package("en_core_web_sm"):
+    os.system("python3 -m spacy download en_core_web_sm")
+nlp = spacy.load("en_core_web_sm")
+
 # Upload multiple PDFs
-uploaded_files = st.file_uploader("Upload your PDFs", type="pdf", accept_multiple_files=True)
+uploaded_files = st.file_uploader("Upload LIFS 2210 Lecture PDFs", type="pdf", accept_multiple_files=True)
 if uploaded_files and not st.session_state.questions:
     load_decks()
     all_text = ""
@@ -76,7 +81,6 @@ if uploaded_files and not st.session_state.questions:
         st.session_state.decks[st.session_state.current_deck] = []
 
     # Generate questions
-    nlp = spacy.load("en_core_web_sm")
     doc = nlp(all_text)
     keywords = [token.text for token in doc if token.is_alpha and not token.is_stop]
 
