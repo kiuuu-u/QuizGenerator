@@ -37,12 +37,13 @@ def save_decks():
     with open("decks.json", "w") as f:
         json.dump(st.session_state.decks, f)
 
-# Load SpaCy model from local directory
+# Load SpaCy model
 try:
     nlp = spacy.load("en_core_web_sm")
 except Exception as e:
     st.error(f"Failed to load SpaCy model 'en_core_web_sm'. Error: {str(e)}")
     st.stop()
+
 # Upload multiple PDFs
 uploaded_files = st.file_uploader("Upload your PDFs", type="pdf", accept_multiple_files=True)
 if uploaded_files and not st.session_state.questions:
@@ -124,28 +125,40 @@ if uploaded_files and not st.session_state.questions:
             if keyword in keyword_options:
                 correct = keyword_options[keyword]["correct"]
                 distractors = keyword_options[keyword]["distractors"]
-                options = [f"A. {correct}"]
-                random.shuffle(distractors)
-                options.extend([f"{chr(66+j)}. {distractors[j]}" for j in range(3)])
-                random.shuffle(options)
-                correct_answer = "A"
+                # Ensure distractors don't contain the correct answer
+                distractors = [d for d in distractors if d != correct][:3]  # Take up to 3 unique distractors
+                # Combine correct answer and distractors into a single list
+                all_options = [correct] + distractors
+                # Shuffle the options
+                random.shuffle(all_options)
+                # Assign labels A, B, C, D after shuffling
+                labeled_options = [f"{chr(65+j)}. {opt}" for j, opt in enumerate(all_options)]
+                # Find the new position of the correct answer
+                correct_idx = all_options.index(correct)
+                correct_answer = chr(65 + correct_idx)  # e.g., 'A', 'B', 'C', or 'D'
                 st.session_state.decks[st.session_state.current_deck].append({
                     "question": f"What is the primary function of {keyword}?",
-                    "options": options,
-                    "answer": "A",
+                    "options": labeled_options,
+                    "answer": correct_answer,
                     "explanation": f"{keyword} {correct} in cellular processes."
                 })
             else:
-                options = [f"A. {keyword} catalyzes reactions"]
-                while len(options) < 4:
+                # Fallback for keywords not in keyword_options
+                correct = f"{keyword} catalyzes reactions"
+                distractors = []
+                while len(distractors) < 3:
                     opt = random.choice(["stores energy", "transports oxygen", "synthesizes proteins", "regulates genes"])
-                    if opt not in options:
-                        options.append(f"D. {keyword} {opt}")
-                random.shuffle(options)
+                    if opt != correct and opt not in distractors:
+                        distractors.append(f"{keyword} {opt}")
+                all_options = [correct] + distractors
+                random.shuffle(all_options)
+                labeled_options = [f"{chr(65+j)}. {opt}" for j, opt in enumerate(all_options)]
+                correct_idx = all_options.index(correct)
+                correct_answer = chr(65 + correct_idx)
                 st.session_state.decks[st.session_state.current_deck].append({
                     "question": f"What is the role of {keyword}?",
-                    "options": options,
-                    "answer": "A",
+                    "options": labeled_options,
+                    "answer": correct_answer,
                     "explanation": f"{keyword} is a key component."
                 })
 
@@ -187,12 +200,12 @@ if st.session_state.questions and st.session_state.mode == "Answer Mode":
 
     user_answer = st.radio("Your Answer:", [opt.split(". ")[1] for opt in current_q['options']], key=f"answer_{st.session_state.question_index}")
     if st.button("Submit"):
-        correct_answer = current_q['answer'].split(". ")[1]
-        if user_answer == correct_answer:
+        correct_answer = current_q['answer']  # Now just "A", "B", etc.
+        if user_answer == current_q['options'][ord(correct_answer) - 65].split(". ")[1]:
             st.success("Correct!")
             st.session_state.score += 1
         else:
-            st.error(f"Wrong! Correct answer is {correct_answer}")
+            st.error(f"Wrong! Correct answer is {current_q['options'][ord(correct_answer) - 65].split('. ')[1]}")
         st.write(f"**Explanation:** {current_q['explanation']}")
         if st.session_state.question_index < len(st.session_state.questions) - 1:
             st.session_state.question_index += 1
@@ -217,7 +230,7 @@ if st.session_state.questions and st.session_state.mode == "Flashcard Mode":
         st.session_state.show_answer = not st.session_state.show_answer
     
     if st.session_state.show_answer:
-        st.write(f"**Answer:** {current_q['answer'].split('. ')[1]}")
+        st.write(f"**Answer:** {current_q['options'][ord(current_q['answer']) - 65].split('. ')[1]}")
         st.write(f"**Explanation:** {current_q['explanation']}")
     
     # Navigation buttons
