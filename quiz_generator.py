@@ -38,13 +38,11 @@ def save_decks():
         json.dump(st.session_state.decks, f)
 
 # Load SpaCy model from local directory
-model_path = os.path.join(os.path.dirname(__file__), "en_core_web_sm")
-if os.path.exists(model_path):
-    nlp = spacy.load(model_path)
-else:
-    st.error("SpaCy model 'en_core_web_sm' not found. Please ensure it is included in the project directory.")
+try:
+    nlp = spacy.load("en_core_web_sm")
+except Exception as e:
+    st.error(f"Failed to load SpaCy model 'en_core_web_sm'. Error: {str(e)}")
     st.stop()
-
 # Upload multiple PDFs
 uploaded_files = st.file_uploader("Upload your PDFs", type="pdf", accept_multiple_files=True)
 if uploaded_files and not st.session_state.questions:
