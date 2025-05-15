@@ -5,3 +5,4 @@ pytesseract==0.3.13
 reportlab==4.4.0
 spacy==3.8.5
 streamlit==1.45.1
+# Note: en_core_web_sm model needs to be downloaded separately

@@ -1,0 +1,6 @@
+venv/
+*.png
+temp.pdf
+decks.json
+.DS_Store
+*.pdf
